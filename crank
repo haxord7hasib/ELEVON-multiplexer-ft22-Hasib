@@ -1,0 +1,109 @@
+/**
+PPM V-Tail/elevon mixer
+
+Input pins:
+ 2: aileron/rudder
+ 3: elevator
+
+Output pins:
+ 9: servo left
+10: servo right
+*/
+
+
+#include <math.h>
+#include <Servo.h>
+
+//#define DEBUG
+#define START_OUTPUT_PIN 9
+
+int Chan1Interrupt = 0; // pin 2, aileron
+int Chan2Interrupt = 1; // pin 3, elevator
+
+unsigned long Chan1_startPulse, Chan2_startPulse;
+volatile double Chan1_val, Chan2_val = 1500;
+volatile double Chan1_val_last, Chan2_val_last = 1500;
+long StartMillis=0;
+long FrameCounter=0;
+
+Servo ServoArray[2];
+
+double reverse(double val) {
+ return (val-1500) * -1 + 1500;
+}
+
+double add(double val1, double val2) {
+ double out = (val1 -1500 + val2 -1500) + 1500;
+ out = (out < 1000) ? 1000 : out;
+ out = (out > 2000) ? 2000 : out;
+ return out;
+}
+
+void serviceServos(long pFrameCounter) {
+ 
+ // do the v-tail mixing 
+ double left  = add(Chan2_val, Chan1_val);
+ double right = add(reverse(Chan2_val), Chan1_val);
+ 
+ ServoArray[0].writeMicroseconds(left);
+ ServoArray[1].writeMicroseconds(right);
+}
+
+void setup() {
+ attachInterrupt(Chan1Interrupt, Chan1_begin, RISING);
+ attachInterrupt(Chan2Interrupt, Chan2_begin, RISING);
+ 
+ ServoArray[0].attach(START_OUTPUT_PIN+0, 900, 2100); // aileron
+ ServoArray[1].attach(START_OUTPUT_PIN+1, 900, 2100); // elevator
+
+ StartMillis = millis();
+#ifdef DEBUG
+ Serial.begin(115200);
+#endif
+}
+
+void loop() {
+ long LocalMillis;
+ long LocalFrameCounter;
+ LocalMillis = millis();
+ LocalFrameCounter = (LocalMillis - StartMillis) / 20;
+
+ if (LocalFrameCounter > FrameCounter) {
+  FrameCounter = LocalFrameCounter;
+  serviceServos(FrameCounter);
+ }
+}
+
+void Chan1_begin() {
+ Chan1_startPulse = micros();
+ detachInterrupt(Chan1Interrupt);
+ attachInterrupt(Chan1Interrupt, Chan1_end, FALLING);
+}
+
+void Chan1_end() {
+ Chan1_val = micros() - Chan1_startPulse;
+ detachInterrupt(Chan1Interrupt);
+ attachInterrupt(Chan1Interrupt, Chan1_begin, RISING);
+ if (Chan1_val < 1000 || Chan1_val > 2000) {
+  Chan1_val = Chan1_val_last;
+ } else {
+  Chan1_val_last = Chan1_val;
+ }
+}
+
+void Chan2_begin() {
+ Chan2_startPulse = micros();
+ detachInterrupt(Chan2Interrupt);
+ attachInterrupt(Chan2Interrupt, Chan2_end, FALLING);
+}
+
+void Chan2_end() {
+ Chan2_val = micros() - Chan2_startPulse;
+ detachInterrupt(Chan2Interrupt);
+ attachInterrupt(Chan2Interrupt, Chan2_begin, RISING);
+ if (Chan2_val < 1000 || Chan2_val > 2000) { 
+  Chan2_val = Chan2_val_last;
+ } else {
+  Chan2_val_last = Chan2_val;
+ }
+}
